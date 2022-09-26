@@ -1,0 +1,471 @@
+---
+title: "Cyclistic Documentation and Report"
+author: "Zhen Hao"
+date: "2022-09-21"
+output:
+    html_document:
+    toc: true
+    theme: united
+---
+# I: Ask phase 
+
+### Business Scenario / Problem Statement 
+
+
+Cyclistic is a bike-share program based in Chicago, there are two types of users, casual riders which pay based on single-ride or full-day passes, and annual members which pay annual fees. 
+The finance analysts had concluded that annual members are much more profitable than casual riders, hence Moreno (Director of Marketing) would like to maximize number of annual members for growth. Hence, understanding the behaviour insights of casual and annual members allow us to create membership conversion campaign through data-driven insights.
+
+This report is aimed to analyse difference of annual members and casual riders from database and create actionable insights to be used in the upcoming conversion campaign from casual riders to members.
+
+
+
+### Sumarised into a question (Key Question)
+
+
+
+*“How do annual members and casual riders use Cyclistic bikes differently?”*
+
+
+
+### Our key stakeholders
+
+1. Cyclistic executive team – They will approve the recommended marketing program
+2. Lily Moreno (Director of marketing) – Need the insights to develop the campaigns
+3. Customers – The insights, campaign, execution should always be dedicated to customers’ best interests. 
+
+
+# II: Preparing phase: 
+
+## Data Sources 
+
+
+#### Online Sources
+
+https://divvy-tripdata.s3.amazonaws.com/index.html 
+
+#### Data Location
+
+Downloaded and stored locally. 
+
+#### Type of data
+
+Second Party data collected by Motivate International Inc.
+
+#### Data organisation
+
+The data is stored in CSV files and it was in monthly basis per file. For this analysis, most recent 12 month (September 2021 – August 2022) of data will be used for data credibility.
+Within the CSV files, there are 13 columns – 
+•	ride_id
+•	rideable_type
+•	started_at
+•	ended_at
+•	start_station_name
+•	start_station_id
+•	end_station_name
+•	end_station_id
+•	start_lat
+•	start_lng
+•	end_lat
+•	end_lng
+•	member_casual
+
+#### Is the data ROCCC? (Data Credibility Assessment)
+
+Reliable: Didn’t state how it was collected and consist of missing values, but based on the sample size, and collected by Divvy bicycle sharing service (same industry), it would be medium level for reliable. 
+
+Original: Collected by Motive International that is being used in Divvy bicycle, hence it was second hand data and its usable.
+
+Comprehensive: Contains quite a lot of missing values but was able to remove the missing ones as there is sufficient data to be used for analysis after the removal. 
+Current: Most current 12 months of data (captured on 16/9/2022). 
+
+Cited: It was made available by City of Chicago.  
+
+#### Lisencing and Privarcy 
+
+The license of the data is made available by Bikeshare LLC and City of Chicago (For more details, read [here](https://ride.divvybikes.com/data-license-agreement)).
+
+All identifying personal information has been removed in this data for anonymous. 
+
+# III: Process phase
+
+### Documentation of data wrangling/ cleaning 
+
+#### Loading library 
+
+```{r loading library used, results='hide',message=FALSE}
+library(scales)
+library(tidyverse)
+library(skimr)
+library(lubridate)
+library(ggplot2)
+```
+
+#### Combining the seperated 12 months file into 1 file 
+
+```{r combined 12 months data file into 1, results='hide',message=FALSE}
+combined_trips <- dir("Cyclistic_Data_Frame",full.names = T) %>%  map_df(read_csv)
+```
+
+
+#### Removing empty values within the combined_trips
+
+```{r removing empty values, results='hide'}
+combined_trips_v2 <- combined_trips %>% drop_na()
+
+```
+
+
+```{r intial viewing to get familiar with the data set}
+skim_without_charts(combined_trips_v2)
+```
+
+
+## Data Manipulation 
+
+
+```{r renaming column}
+combined_trips_v2 <- combined_trips_v2 %>% rename(membership_type = member_casual)
+```
+
+### Adding ride_length =(ended_at - started_at ) in HMS format for analysis.
+
+```{r adding new column}
+combined_trips_v3 <- combined_trips_v2 %>%  mutate(ride_length = seconds_to_period(ended_at - started_at))
+is.numeric(combined_trips_v3$ride_length) ## check if is in numeric for analysis.
+```
+
+
+
+```{r free up spaces,echo = T, results = 'hide'}
+rm(combined_trips,combined_trips_v2) #Remove files to clean up the clutter 
+```
+
+#### Find the weekday where the bike ride begins and create a new column
+
+```{r adding weekday column}
+combined_trips_v3 <- combined_trips_v3 %>%  mutate(day_of_week = wday(started_at, label=TRUE))
+str(combined_trips_v3$day_of_week) #Checking the order (Sunday......Saturday) 
+```
+
+
+
+#### Data inspecting
+
+
+```{r checking for any data inconsistency}
+summary(combined_trips_v3)
+skim_without_charts(combined_trips_v3)
+```
+
+
+Upon inspecting, there are negative values on ride length, hence will remove the entries with it as the start time and end time is not valid in the first place. 
+
+
+```{r filtering out invalid values}
+combined_trips_v4 <- combined_trips_v3 %>% filter(ride_length >= 0) 
+#skim_without_charts(combined_trips_v4) ##Checking the data again
+```
+
+
+#### Adding date, month, day, year, day_of_week columns, for furthur anaylsis. 
+
+```{r create more time columns for more specific analysis}
+combined_trips_v4$date <- as.Date(combined_trips_v4$started_at) 
+combined_trips_v4$hour <- format(as.POSIXct(combined_trips_v4$started_at), "%H")
+combined_trips_v4$month <- format(as.Date(combined_trips_v4$date), "%m")
+combined_trips_v4$day <- format(as.Date(combined_trips_v4$date), "%d")
+combined_trips_v4$year <- format(as.Date(combined_trips_v4$date), "%Y")
+```
+
+
+#### Changing data structure to ease up analysis
+
+```{r changing ride length into numeric(second) for analysis}
+combined_trips_v4$ride_length <- as.numeric(combined_trips_v4$ride_length)
+combined_trips_v4$membership_type <- as.factor(combined_trips_v4$membership_type)
+is.numeric(combined_trips_v4$ride_length)
+summary(combined_trips_v4$ride_length)
+```
+
+**Hence, for now, I had completed the prepare and process.** 
+
+# IV: Analyze phase
+
+## Descriptive Analysis (mean,median,min,max, using summary function on ride length, group by membership type.
+
+#### Comparing members vs annual users
+
+```{r descriptive analysis for comparing membership type}
+aggregate(combined_trips_v4$ride_length ~ combined_trips_v4$membership_type, FUN = mean) 
+aggregate(combined_trips_v4$ride_length ~ combined_trips_v4$membership_type, FUN = median)
+aggregate(combined_trips_v4$ride_length ~ combined_trips_v4$membership_type, FUN = max)
+aggregate(combined_trips_v4$ride_length ~ combined_trips_v4$membership_type, FUN = min)
+```
+
+#### Above line could be summarized using group_by() and summarise function. 
+
+```{r}
+combined_trips_v4 %>% 
+  group_by(membership_type) %>% 
+    summarise(mean(ride_length),
+            median(ride_length),
+            max(ride_length),
+            min(ride_length))
+```
+      
+### Aggregating Data for analysis 
+
+Insight from the table: 
+
+Upon inspecting, found out that even though member pay for its annual fee, the ride length is lower as compared to casual users.
+
+```{r checking average ride length between casual vs members, message= FALSE}
+data.frame(table(combined_trips_v4$membership_type))
+
+combined_trips_v4 %>% 
+  group_by(membership_type) %>% 
+  summarise(mean(ride_length))
+
+```
+
+## After some descriptive analysis, now it's time for data visualisation! 
+
+```{r Adding a small edit to avoid scientific symbol for data viz}
+options(scipen=5) #Adding a small edit to avoid scientific symbol for data viz
+```
+
+# V: Share 
+
+#### Viz 1: Day preference between casual and member
+
+Insight for viz below: 
+
+Casual users mostly use the services on weekend, whereas annual members uses it on weekdays. 
+
+```{r Day preference between casual and member viz, message= FALSE}
+combined_trips_v4 %>%  
+  group_by(membership_type,day_of_week) %>% 
+  summarise(number_of_rides = n(),
+            average_duration = mean(ride_length)) %>% 
+  arrange(membership_type,day_of_week) %>% 
+  ggplot(aes(x=day_of_week, y=number_of_rides, fill = membership_type)) +
+  geom_col(position = "dodge")+
+  facet_wrap(vars(membership_type))+
+  scale_y_continuous(labels=comma)+
+  labs(title="Weekdays preference and Number of Rides",subtitle = "Compared between casual users and annual members", x= "Weekday", y="Number of Rides")+
+  theme(plot.background = element_rect(color = "azure2", size = 2))
+```
+
+
+
+#### Viz 2: Average Casual vs member ride time per time 
+
+Insight for viz below: 
+
+Casual users mostly spent more duration when getting into a ride, they seems to enjoy riding leisurely as compared to having a destination. 
+
+```{r Average Casual vs member ride time per time viz, message= FALSE}
+combined_trips_v4 %>%  
+  group_by(membership_type,day_of_week) %>% 
+  summarise(number_of_rides = n(),
+            average_duration=mean(ride_length)) %>% 
+  arrange(membership_type, day_of_week) %>% 
+  ggplot(aes(x=day_of_week, y=average_duration/60, fill= membership_type)) + 
+  geom_col(position = "dodge")+
+  scale_y_continuous(labels=comma)+
+  labs(title="Average Casual Users vs Annual Member Ride Duration", x= "Weekday", y="Ride Duration (Minutes)")+
+  theme(plot.background = element_rect(color = "azure2", size = 2))
+```
+
+
+
+#### Viz 3: Preference of casual vs member on riding types
+
+Insight for viz below: 
+
+Docked bike uses are unique to casual users (while having the lowest total usage) while classic bike is mostly used by member and casual (having highest usage between 2 groups) as well. 
+
+
+```{r Preference of casual vs member on riding types viz, message= FALSE}
+combined_trips_v4 %>% 
+  group_by(membership_type,rideable_type) %>% 
+  summarise (number_of_rides = n()) %>% 
+  arrange(membership_type, rideable_type) %>% 
+  ggplot(aes(x=rideable_type, y=number_of_rides, fill = membership_type))+
+  geom_col(position = "dodge")+
+  scale_y_continuous(labels=comma)+ 
+  labs(title="Rideable Type Preference",subtitle = "Compared between casual users and annual members", x= "Type of Rides", y="Number of Rides")+
+  theme(plot.background = element_rect(color = "azure2", size = 2))
+```
+
+
+
+#### Viz 4: Monthly preference of casual vs member
+
+Insight for viz below: 
+
+Spring and summer season (Late March to Early September) have the most rides as compared to fall and winter seasons (Late September to Early March)
+
+```{r Monthly preference of casual vs member viz, message= FALSE}
+combined_trips_v4 %>%  
+  group_by(membership_type, month) %>% 
+  summarise(number_of_rides = n(),
+            average_duration=mean(ride_length)) %>% 
+  arrange(membership_type) %>% 
+  ggplot(aes(x=month, y=number_of_rides, fill= membership_type)) + 
+  geom_col(position = "dodge")+
+  scale_y_continuous(labels=comma)+
+  labs(title="Monthly preference of Casual Users vs Annual Member", x= "Month", y="Number of Rides")+
+  theme(plot.background = element_rect(color = "azure2", size = 2))
+```
+
+
+
+#### Viz 5: Top 10 popular station 
+
+Insight for viz below:
+
+The most popular station among casual users are "Streeter Dr & Grand Ave", "DuSable Lake Shore Dr & Monroe St" and "Millennium Park"
+
+
+```{r Creating a top 10 station frame and visualizing it, message= FALSE}
+top_station <- combined_trips_v4 %>% 
+  group_by(start_station_name, membership_type) %>%
+  count(sort=TRUE, name= "Total Rides") %>% 
+  head(10)
+
+top_station %>% 
+  ggplot(aes(reorder(start_station_name,`Total Rides`),
+                           y=`Total Rides`,
+                           fill=membership_type))+geom_col() + 
+  coord_flip()+
+  labs(title="Top 10 popular start station", subtitle="Among Casual Users and Annual Members", x= "Station Name", y="Total Rides")+
+  theme(plot.background = element_rect(color = "azure2", size = 2))
+```
+
+
+
+#### Viz 6: Hour preference between members and casual
+
+Insight for viz below: 
+
+Trend showing that casual users will having a increasing trend starting on 4 am and reach its peak on 4 pm (most users fall under 10am-7pm with above 100,000 number of rides on the specified hours) where as members have its surge on usage on 8-9 am and 4-6pm. 
+
+
+```{r Hour preference between members and casual viz, message= FALSE}
+combined_trips_v4 %>%  
+  group_by(membership_type, hour) %>% 
+  summarise(number_of_rides = n(),
+            average_duration=mean(ride_length)) %>% 
+  arrange(membership_type) %>% 
+  ggplot(aes(x=hour, y=number_of_rides, fill= membership_type)) + 
+  geom_col(position = "dodge")+
+  scale_y_continuous(labels=comma)+
+  theme(axis.text.x = element_text(size = 06, angle=90, hjust=0.95,vjust=0.2))+
+  facet_wrap(vars(membership_type))+
+  labs(title="Hour preference between Casual Users and Annual Members",  x= "Hour", y="Total Rides")+
+  theme(plot.background = element_rect(color = "azure2", size = 2))
+
+
+```
+
+# VI: Act 
+
+## Recommendation 1: Identifying potential casual users who are commuting to work using bike
+
+Based on several graphs (look below), there a main distinction on the *usage* on casual users and annual members. 
+
+Based on the data analysis and visualization, it is evident that annual members use it for commuting to work as evident on these graphs:
+
+
+1. Graph below shows the casual users used it during weekend (leisure purpose) and annual members used it during weekdays (commute to work)
+
+
+```{r, echo=FALSE, message= FALSE}
+combined_trips_v4 %>%  
+  group_by(membership_type,day_of_week) %>% 
+  summarise(number_of_rides = n(),
+            average_duration = mean(ride_length)) %>% 
+  arrange(membership_type,day_of_week) %>% 
+  ggplot(aes(x=day_of_week, y=number_of_rides, fill = membership_type)) +
+  geom_col(position = "dodge")+
+  facet_wrap(vars(membership_type))+
+  scale_y_continuous(labels=comma)+
+  labs(title="Weekdays preference and Number of Rides",subtitle = "Compared between casual users and annual members", x= "Weekday", y="Number of Rides")+
+  theme(plot.background = element_rect(color = "azure2", size = 2))
+```
+
+2. Graph below shows the annual members have lower ride duration  as compared to casual users (which could due to annual members having direct destination from start station to nearby working end station)
+
+```{r, echo=FALSE, message= FALSE}
+combined_trips_v4 %>%  
+  group_by(membership_type,day_of_week) %>% 
+  summarise(number_of_rides = n(),
+            average_duration=mean(ride_length)) %>% 
+  arrange(membership_type, day_of_week) %>% 
+  ggplot(aes(x=day_of_week, y=average_duration/60, fill= membership_type)) + 
+  geom_col(position = "dodge")+
+  scale_y_continuous(labels=comma)+
+  labs(title="Average Casual Users vs Annual Member Ride Duration", x= "Weekday", y="Ride Duration (Minutes)")+
+  theme(plot.background = element_rect(color = "azure2", size = 2))
+```
+
+3. Graph below shows that the sudden surge on annual users matches the office operating hours (start and closing)
+
+```{r, echo=FALSE, message= FALSE}
+combined_trips_v4 %>%  
+  group_by(membership_type, hour) %>% 
+  summarise(number_of_rides = n(),
+            average_duration=mean(ride_length)) %>% 
+  arrange(membership_type) %>% 
+  ggplot(aes(x=hour, y=number_of_rides, fill= membership_type)) + 
+  geom_col(position = "dodge")+
+  scale_y_continuous(labels=comma)+
+  theme(axis.text.x = element_text(size = 06, angle=90, hjust=0.95,vjust=0.2))+
+  facet_wrap(vars(membership_type))+
+  labs(title="Hour preference between Casual Users and Annual Members",  x= "Hour", y="Total Rides")+
+  theme(plot.background = element_rect(color = "azure2", size = 2))
+```
+
+Based on all of these, marketing team could craft its message surrounding commuting to work to capture the potential casual users who prefer biking to work. 
+
+
+## Recommendation 2: Focus the campaign during Spring and Summer season 
+
+Based on the analysis, it was found out that during end of Sept until early Mar, number of rides for all users reduced drastically, and slowly increasing during spring season. Hence, advertising campaign during spring and summer season will most likely to have best ROI. 
+
+```{r, echo=FALSE, message= FALSE}
+combined_trips_v4 %>%  
+  group_by(membership_type, month) %>% 
+  summarise(number_of_rides = n(),
+            average_duration=mean(ride_length)) %>% 
+  arrange(membership_type) %>% 
+  ggplot(aes(x=month, y=number_of_rides, fill= membership_type)) + 
+  geom_col(position = "dodge")+
+  scale_y_continuous(labels=comma)+
+  labs(title="Monthly preference of Casual Users vs Annual Member", x= "Month", y="Number of Rides")+
+  theme(plot.background = element_rect(color = "azure2", size = 2))
+```
+
+## Recommendation 3: Create marketing events around the top 3 stations. 
+
+As we identified the top stations for casual users, targeting the top 3 stations which is 
+"Streeter Dr & Grand Ave", "DuSable Lake Shore Dr & Monroe St" and "Millennium Park", as creating an event is able to educate casual users on the perks of being an annual members  directly which increases the chance of converting casual to annual members.
+
+
+```{r,echo=FALSE, message= FALSE}
+top_station <- combined_trips_v4 %>% 
+  group_by(start_station_name, membership_type) %>%
+  count(sort=TRUE, name= "Total Rides") %>% 
+  head(10)
+
+top_station %>% 
+  ggplot(aes(reorder(start_station_name,`Total Rides`),
+                           y=`Total Rides`,
+                           fill=membership_type))+geom_col() + 
+  coord_flip()+
+  labs(title="Top 10 popular start station", subtitle="Among Casual Users and Annual Members", x= "Station Name", y="Total Rides")+
+  theme(plot.background = element_rect(color = "azure2", size = 2))
+```
+
+
